@@ -1,3 +1,5 @@
+console.log("🟢 index.js is running");
+
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -7,7 +9,7 @@ const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
-const port = process.env.PORT;
+const port = process.env.PORT || 4000;
 const url = process.env.DATABASE_URL;
 
 app.use(cors());
@@ -25,6 +27,10 @@ function readTodosFile() {
   const rawData = fs.readFileSync("./todos.json");
   return JSON.parse(rawData);
 }
+app.get("/test", (req, res) => {
+  console.log("✅ /test route hit");
+  res.status(200).json({ message: "Test route working" });
+});
 
 // Routes
 app.post("/addtodo", addTodoHandler);
@@ -34,7 +40,7 @@ app.patch("/utodo/:id", updateTodoHandler);
 app.get("/todo/api", apiHandler);
 app.get("/local-todos", localApiHandler);
 app.get("/spesific-todo/:id", specificTodoHandler);
-app.get("/addtodo", completedHandler);
+app.get("/todos/completed", completedHandler);
 
 // Add this with your other routes
 app.get("/", (req, res) => {
@@ -188,18 +194,29 @@ function specificTodoHandler(req, res) {
     });
 }
 
+// GET /todos?completed=true|false (empty for all)
 function completedHandler(req, res) {
-  const keyword = req.query.keyword;
-  const sql = "SELECT * FROM todo WHERE completed = $1";
-  const values = [keyword];
+  const { completed } = req.query;
+  console.log("✅ /todos/completed hit with query:", completed);
+
+  let sql = "SELECT * FROM todo";
+  let values = [];
+
+  if (completed === 'true' || completed === 'false') {
+    sql += " WHERE completed = $1";
+    values.push(completed === 'true');
+  }
+
+  console.log("📦 Running SQL:", sql, "with values:", values);
+
   client
     .query(sql, values)
     .then((result) => {
-      console.log("Completed todos retrieved:", result.rows);
+      console.log("📄 Retrieved rows:", result.rows);
       res.status(200).json(result.rows);
     })
     .catch((err) => {
-      console.error("Error retrieving completed todos:", err);
+      console.error("❌ Error retrieving completed todos:", err);
       res.status(500).json({ error: "Internal server error" });
     });
 }
