@@ -70,4 +70,15 @@ BEGIN
 END $$;
 
 -- Drop user_todo table if it exists
-DROP TABLE IF EXISTS user_todo; 
+DROP TABLE IF EXISTS user_todo;
+
+-- Create the session table for production session storage
+CREATE TABLE IF NOT EXISTS "session" (
+  "sid" varchar NOT NULL COLLATE "default",
+  "sess" json NOT NULL,
+  "expire" timestamp(6) NOT NULL,
+  CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+);
+
+-- Create an index on the expire column for better performance
+CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire"); 

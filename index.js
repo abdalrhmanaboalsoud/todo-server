@@ -11,6 +11,7 @@ const jwt = require("jsonwebtoken");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
 require("dotenv").config();
 
 const client = new Client({
@@ -25,13 +26,33 @@ const port = process.env.PORT || 5000;
 const url = process.env.DATABASE_URL;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Make sure to set this in your .env file
 
+// Add this near the top of your file, after require statements
+const requiredEnvVars = [
+  'DATABASE_URL',
+  'JWT_SECRET',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'FRONTEND_URL'
+];
+
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+  console.error('Missing required environment variables:', missingEnvVars);
+  process.exit(1);
+}
+
 // Session configuration
 app.use(session({
+  store: new pgSession({
+    pool: client, // Use the same pool as your database connection
+    tableName: 'session' // Use a different table name if you prefer
+  }),
   secret: JWT_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
     sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
