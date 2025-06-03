@@ -224,8 +224,8 @@ app.get('/auth/google/test', (req, res) => {
 // Routes
 app.post("/addtodo", authenticateToken, addTodoHandler);
 app.get("/todos", authenticateToken, getTodosHandler);
-app.delete("/dtodos/:id", authenticateToken, deleteTodoHandler);
-app.put("/utodos/:id", authenticateToken, updateTodoHandler);
+app.delete("/dtodo/:id", authenticateToken, deleteTodoHandler);
+app.patch("/utodo/:id", authenticateToken, updateTodoHandler);
 app.get("/todo/api", apiHandler);
 app.get("/local-todos", localApiHandler);
 app.get("/spesific-todo/:id", authenticateToken, specificTodoHandler);
