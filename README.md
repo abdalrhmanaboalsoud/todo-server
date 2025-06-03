@@ -265,8 +265,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 👤 Author
 
 Abdalrhman Waleed
-- GitHub: [Your GitHub Profile]
-- LinkedIn: [Your LinkedIn Profile]
+- GitHub: Abdalrhmanaoalsoud
+- LinkedIn:  linkedin.com/in/abdalrhman-aboalsoud/
 
 ## 🙏 Acknowledgments
 
