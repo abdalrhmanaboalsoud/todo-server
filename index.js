@@ -434,8 +434,12 @@ app.patch('/api/profile/password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const userId = req.user.id;
 
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required' });
+  }
+
   try {
-    // Get current user data
+    // Get user's current password
     const userResult = await client.query(
       'SELECT password FROM users WHERE id = $1',
       [userId]
@@ -445,24 +449,34 @@ app.patch('/api/profile/password', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = userResult.rows[0];
+    const storedPassword = userResult.rows[0].password;
 
     // Verify current password
-    const validPassword = await bcrypt.compare(currentPassword, user.password);
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
+    try {
+      const validPassword = await bcrypt.compare(currentPassword.toString(), storedPassword);
+      if (!validPassword) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+    } catch (compareError) {
+      console.error('Error comparing passwords:', compareError);
+      return res.status(500).json({ error: 'Error verifying current password' });
     }
 
     // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    try {
+      const hashedPassword = await bcrypt.hash(newPassword.toString(), 10);
 
-    // Update password
-    await client.query(
-      'UPDATE users SET password = $1 WHERE id = $2',
-      [hashedPassword, userId]
-    );
+      // Update password
+      await client.query(
+        'UPDATE users SET password = $1 WHERE id = $2',
+        [hashedPassword, userId]
+      );
 
-    res.json({ message: 'Password updated successfully' });
+      res.json({ message: 'Password updated successfully' });
+    } catch (hashError) {
+      console.error('Error hashing new password:', hashError);
+      return res.status(500).json({ error: 'Error updating password' });
+    }
   } catch (error) {
     console.error('Error updating password:', error);
     res.status(500).json({ error: 'Internal server error' });
