@@ -12,6 +12,8 @@ const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
+const multer = require('multer');
+const path = require('path');
 require("dotenv").config();
 
 const client = new Client({
@@ -404,6 +406,184 @@ app.get('/auth/google/callback',
 app.post('/logout', (req, res) => {
   res.clearCookie('auth_token');
   res.status(200).json({ message: 'Logged out successfully' });
+});
+
+// User profile management endpoints
+app.put('/api/profile', authenticateToken, async (req, res) => {
+  const { first_name, last_name } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const result = await client.query(
+      'UPDATE users SET first_name = $1, last_name = $2 WHERE id = $3 RETURNING id, first_name, last_name, email, profile_picture',
+      [first_name, last_name, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/profile/password', authenticateToken, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user.id;
+
+  try {
+    // Get current user data
+    const userResult = await client.query(
+      'SELECT password FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Verify current password
+    const validPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await client.query(
+      'UPDATE users SET password = $1 WHERE id = $2',
+      [hashedPassword, userId]
+    );
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error updating password:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Profile picture upload endpoint
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'profile-' + req.user.id + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = /jpeg|jpg|png|gif/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (extname && mimetype) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'));
+    }
+  }
+});
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static('uploads'));
+
+app.post('/api/profile/picture', authenticateToken, upload.single('profilePicture'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const userId = req.user.id;
+  const profilePicturePath = `/uploads/${req.file.filename}`;
+
+  try {
+    // Get old profile picture path
+    const oldPictureResult = await client.query(
+      'SELECT profile_picture FROM users WHERE id = $1',
+      [userId]
+    );
+
+    // Delete old profile picture if it exists and is not the default
+    if (oldPictureResult.rows[0]?.profile_picture) {
+      const oldPicturePath = path.join(__dirname, oldPictureResult.rows[0].profile_picture);
+      if (fs.existsSync(oldPicturePath) && !oldPicturePath.includes('default-profile.png')) {
+        fs.unlinkSync(oldPicturePath);
+      }
+    }
+
+    // Update profile picture path in database
+    const result = await client.query(
+      'UPDATE users SET profile_picture = $1 WHERE id = $2 RETURNING profile_picture',
+      [profilePicturePath, userId]
+    );
+
+    res.json({ profilePicture: result.rows[0].profile_picture });
+  } catch (error) {
+    // Delete uploaded file if database update fails
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    console.error('Error updating profile picture:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete profile picture endpoint
+app.delete('/api/profile/picture', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const defaultPicture = '/uploads/default-profile.png';
+
+  try {
+    // Get current profile picture
+    const result = await client.query(
+      'SELECT profile_picture FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const currentPicture = result.rows[0].profile_picture;
+
+    // Delete the file if it exists and is not the default
+    if (currentPicture && !currentPicture.includes('default-profile.png')) {
+      const picturePath = path.join(__dirname, currentPicture);
+      if (fs.existsSync(picturePath)) {
+        fs.unlinkSync(picturePath);
+      }
+    }
+
+    // Update database to use default picture
+    await client.query(
+      'UPDATE users SET profile_picture = $1 WHERE id = $2',
+      [defaultPicture, userId]
+    );
+
+    res.json({ profilePicture: defaultPicture });
+  } catch (error) {
+    console.error('Error deleting profile picture:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // functions handlers
