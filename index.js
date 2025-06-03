@@ -160,6 +160,27 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Add this after the authenticateToken middleware and before the routes
+app.get('/auth/me', authenticateToken, async (req, res) => {
+  try {
+    // Get user data from database
+    const result = await client.query(
+      'SELECT id, username, email, first_name, last_name, auth_provider, profile_picture FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    res.json(user);
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 function readTodosFile() {
   const rawData = fs.readFileSync("./todos.json");
   return JSON.parse(rawData);
@@ -605,11 +626,15 @@ app.get('/test-get', (req, res) => {
 
 client
   .connect()
-  .then(() => console.log("Connected to PostgreSQL"))
+  .then(() => {
+    console.log("Connected to PostgreSQL");
+    console.log("Attempting to start server...");
+    app.listen(port, () => {
+      console.log(`Server is running at http://localhost:${port}`);
+      console.log("Server listen callback executed.");
+    });
+  })
   .catch((err) => console.error("Connection error", err.stack));
 
 console.log("DB URL:", process.env.DATABASE_URL, "PORT:", process.env.PORT);
-
-app.listen(port, () => {
-  console.log(`Server is running at http://localhost:${port}`);
-});
+console.log("End of startup script.");
