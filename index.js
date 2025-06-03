@@ -14,6 +14,7 @@ const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const multer = require('multer');
 const path = require('path');
+const cloudinary = require('cloudinary').v2;
 require("dotenv").config();
 
 const client = new Client({
@@ -43,6 +44,13 @@ if (missingEnvVars.length > 0) {
   console.error('Missing required environment variables:', missingEnvVars);
   process.exit(1);
 }
+
+// Add this after other environment variables
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 // Session configuration
 app.use(session({
@@ -483,19 +491,9 @@ app.patch('/api/profile/password', authenticateToken, async (req, res) => {
   }
 });
 
-// Profile picture upload endpoint
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/');
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'profile-' + req.user.id + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// Replace the multer storage configuration with memory storage
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit
   },
@@ -512,59 +510,61 @@ const upload = multer({
   }
 });
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
-}
-
-// Serve static files from uploads directory
-app.use('/uploads', express.static('uploads'));
-
+// Replace the profile picture upload endpoint
 app.post('/api/profile/picture', authenticateToken, upload.single('profilePicture'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
   const userId = req.user.id;
-  const profilePicturePath = `/uploads/${req.file.filename}`;
 
   try {
-    // Get old profile picture path
+    // Get old profile picture URL
     const oldPictureResult = await client.query(
       'SELECT profile_picture FROM users WHERE id = $1',
       [userId]
     );
 
-    // Delete old profile picture if it exists and is not the default
-    if (oldPictureResult.rows[0]?.profile_picture) {
-      const oldPicturePath = path.join(__dirname, oldPictureResult.rows[0].profile_picture);
-      if (fs.existsSync(oldPicturePath) && !oldPicturePath.includes('default-profile.png')) {
-        fs.unlinkSync(oldPicturePath);
+    // Upload new image to Cloudinary
+    const b64 = Buffer.from(req.file.buffer).toString('base64');
+    const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+    
+    const uploadResponse = await cloudinary.uploader.upload(dataURI, {
+      folder: 'profile_pictures',
+      public_id: `profile-${userId}-${Date.now()}`,
+      overwrite: true,
+      resource_type: 'auto'
+    });
+
+    // Delete old image from Cloudinary if it exists and is not the default
+    if (oldPictureResult.rows[0]?.profile_picture && 
+        !oldPictureResult.rows[0].profile_picture.includes('default-profile.png')) {
+      try {
+        const publicId = oldPictureResult.rows[0].profile_picture.split('/').slice(-1)[0].split('.')[0];
+        await cloudinary.uploader.destroy(publicId);
+      } catch (deleteError) {
+        console.error('Error deleting old profile picture:', deleteError);
+        // Continue even if deletion fails
       }
     }
 
-    // Update profile picture path in database
+    // Update profile picture URL in database
     const result = await client.query(
       'UPDATE users SET profile_picture = $1 WHERE id = $2 RETURNING profile_picture',
-      [profilePicturePath, userId]
+      [uploadResponse.secure_url, userId]
     );
 
     res.json({ profilePicture: result.rows[0].profile_picture });
   } catch (error) {
-    // Delete uploaded file if database update fails
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
-    }
     console.error('Error updating profile picture:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Failed to update profile picture' });
   }
 });
 
-// Delete profile picture endpoint
+// Update the delete profile picture endpoint
 app.delete('/api/profile/picture', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-  const defaultPicture = '/uploads/default-profile.png';
+  const defaultPicture = process.env.DEFAULT_PROFILE_PICTURE || 'https://res.cloudinary.com/dzh4puawn/image/upload/v1748993287/profile_pictures/default-profile.svg';
 
   try {
     // Get current profile picture
@@ -579,11 +579,14 @@ app.delete('/api/profile/picture', authenticateToken, async (req, res) => {
 
     const currentPicture = result.rows[0].profile_picture;
 
-    // Delete the file if it exists and is not the default
+    // Delete the image from Cloudinary if it exists and is not the default
     if (currentPicture && !currentPicture.includes('default-profile.png')) {
-      const picturePath = path.join(__dirname, currentPicture);
-      if (fs.existsSync(picturePath)) {
-        fs.unlinkSync(picturePath);
+      try {
+        const publicId = currentPicture.split('/').slice(-1)[0].split('.')[0];
+        await cloudinary.uploader.destroy(publicId);
+      } catch (deleteError) {
+        console.error('Error deleting profile picture:', deleteError);
+        // Continue even if deletion fails
       }
     }
 
