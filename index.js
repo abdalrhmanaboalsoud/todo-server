@@ -409,13 +409,13 @@ app.post('/logout', (req, res) => {
 });
 
 // User profile management endpoints
-app.put('/api/profile', authenticateToken, async (req, res) => {
+app.patch('/api/profile', authenticateToken, async (req, res) => {
   const { first_name, last_name } = req.body;
   const userId = req.user.id;
 
   try {
     const result = await client.query(
-      'UPDATE users SET first_name = $1, last_name = $2 WHERE id = $3 RETURNING id, first_name, last_name, email, profile_picture',
+      'UPDATE users SET first_name = COALESCE($1, first_name), last_name = COALESCE($2, last_name) WHERE id = $3 RETURNING id, first_name, last_name, email, profile_picture',
       [first_name, last_name, userId]
     );
 
@@ -430,7 +430,7 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/profile/password', authenticateToken, async (req, res) => {
+app.patch('/api/profile/password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const userId = req.user.id;
 
