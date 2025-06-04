@@ -639,19 +639,18 @@ function addTodoHandler(req, res) {
     });
 }
 
-function getTodosHandler(req, res) {
-  const userId = req.user.id; // Get user ID from the authenticated request
+async function getTodosHandler(req, res) {
   const keyword = req.query.keyword;
-  let sql = "SELECT * FROM todo WHERE user_id = $1";
-  const values = [userId];
-  
+  let query = 'SELECT id, title, description, completed, priority, due_date FROM todo WHERE user_id = $1';
+  const values = [req.user.id];
+
   if (keyword) {
-    sql += " AND title ILIKE $2";
+    query += " AND title ILIKE $2";
     values.push(`%${keyword}%`);
   }
   
   client
-    .query(sql, values)
+    .query(query, values)
     .then((result) => {
       console.log("Todos retrieved:", result.rows);
       res.status(200).json(result.rows);
