@@ -713,7 +713,7 @@ function updateTodoHandler(req, res) {
 
 function apiHandler(req, res) {
   const keyword = req.query.keyword;
-  const url = `https://dummyjson.com/todos?keyword= ${encodeURIComponent(keyword)}`;
+  const url = `https://jsonplaceholder.typicode.com/todos?keyword= ${encodeURIComponent(keyword)}`;
   if (!keyword) {
     axios
       .get(url)
