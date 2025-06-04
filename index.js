@@ -70,7 +70,11 @@ app.use(session({
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3001',
+  origin: [
+    process.env.FRONTEND_URL,
+    'https://todos-ivory-six.vercel.app',
+    'http://localhost:3000'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
@@ -821,6 +825,17 @@ app.post('/test-log', (req, res) => {
 app.get('/test-get', (req, res) => {
   console.log("test-get called");
   res.json({ ok: true });
+});
+
+// Add a test endpoint that returns CORS headers
+app.get('/test', (req, res) => {
+  res.json({
+    message: 'Server is running',
+    cors: {
+      origin: req.headers.origin,
+      allowed: true
+    }
+  });
 });
 
 client
